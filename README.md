@@ -1,6 +1,5 @@
 
 # Lightweight Fine-tuning a Pretrained Protein Language Model for Protein Secondary Structure Prediction
-=
 
 **Abstract**
 <br>
@@ -11,6 +10,7 @@ Pretrained large-scale protein language models, such as ESM-1b and ProtTrans, ar
 > * Python >=3.8  
 > * Pytorch >=1.10
 > * adapter-transformers >=3.1.0
+
 The codes are tested under Ubuntu.
 
 ### 2. Citation
