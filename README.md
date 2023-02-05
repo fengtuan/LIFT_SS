@@ -16,7 +16,7 @@ The codes are tested under Ubuntu.
 ### 2. Citation
 If you use our code in your study, please cite as:
 
-[1] Wei Yang,Chun Liu, Zheng Li and Lei Zhang, Lightweight Fine-tuning a Pretrained Protein Language Model for Protein Secondary Structure Prediction
+[1] Wei Yang,Chun Liu, and Zheng Li, Lightweight Fine-tuning a Pretrained Protein Language Model for Protein Secondary Structure Prediction
 
 ### 3. Contact
 For questions and comments, feel free to contact :yang0sun@gmail.com. 
