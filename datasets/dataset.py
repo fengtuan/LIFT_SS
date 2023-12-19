@@ -76,7 +76,7 @@ def Load_Data(FastaFile,isThreeClass):
 
 def load_train_valid(SequenceIdentity=25,isThreeClass=False):  
    train_list=Load_Data('data/PISCES_%d_train.txt'%(SequenceIdentity),isThreeClass)
-   valid_list=Load_Data('data/cullpdb_25_valid.txt',isThreeClass)
+   valid_list=Load_Data('data/PISCES_25_valid.txt',isThreeClass)
    valid_list.sort(key=lambda Node: Node.ProteinLen,reverse=False)
    return train_list,valid_list
 
