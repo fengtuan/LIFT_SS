@@ -92,7 +92,7 @@ def half_train(args,model,scaler,device,train_list,optimizer,criterion):
         inputs=inputs.to(device)
         targets=targets.to(device)
         masks=masks.to(device)       
-        with autocast(enabled=args.use_amp):           
+        with autocast(enabled=args.use_amp):            
             outputs=model(inputs,masks)
             outputs=outputs.view(-1,outputs.size(2))
             loss=criterion(outputs,targets.flatten())/gradient_accumulation_steps
@@ -185,12 +185,6 @@ def eval(args,model,device,eval_list,batch_size,criterion=None):
     class_correct=list(0. for i in range(args.num_class))
     class_total=list(0. for i in range(args.num_class))
     idxs=np.where(labels_true!=-100)# def NearestCentroidClassifier(x,centroids):        
-#     assert x.size()[1]==centroids.size()[1],"The dimension must match."
-#     with torch.no_grad():
-#         dist=1.0-torch.matmul(x,centroids.t())
-#         idx=torch.topk(dist,1,dim=1,largest=False)[1]
-#         pred_labels=idx.squeeze()
-#     return pred_labels
     labels_true=labels_true[idxs]
     labels_pred=labels_pred[idxs]
     for i in range(len(labels_true)):
@@ -280,11 +274,11 @@ def eval_sov_embedding_feature(args,model,device,eval_list,batch_size,criterion=
                     labels_true=np.hstack((labels_true,targets[i,:L].cpu().numpy()))
                     labels_pred=np.hstack((labels_pred,pred_labels[i,:L].cpu().numpy()))
                     label_t_=''                    
-                    for i in label_t:                        
-                        label_t_+=SS_dict[i] 
+                    for j in label_t:                        
+                        label_t_+=SS_dict[j] 
                     label_p_=''
-                    for i in label_p:
-                        label_p_+=SS_dict[i]                   
+                    for j in label_p:
+                        label_p_+=SS_dict[j]                   
                     f.write('>%s %d\n'%(eval_list[count].ProteinID,eval_list[count].ProteinLen))
                     f.write('%s\n'%(label_t_))
                     f.write('%s\n'%(label_p_))
@@ -352,11 +346,11 @@ def eval_sov(args,model,device,eval_list,batch_size,criterion=None):
                     labels_true=np.hstack((labels_true,targets[i,:L].cpu().numpy()))
                     labels_pred=np.hstack((labels_pred,pred_labels[i,:L].cpu().numpy()))
                     label_t_=''                    
-                    for i in label_t:                        
-                        label_t_+=SS_dict[i] 
+                    for j in label_t:                        
+                        label_t_+=SS_dict[j] 
                     label_p_=''
-                    for i in label_p:
-                        label_p_+=SS_dict[i]                   
+                    for j in label_p:
+                        label_p_+=SS_dict[j]                   
                     f.write('>%s %d\n'%(eval_list[count].ProteinID,eval_list[count].ProteinLen))
                     f.write('%s\n'%(label_t_))
                     f.write('%s\n'%(label_p_))
@@ -427,11 +421,11 @@ def eval_sov_9_3(args,model,device,eval_list,batch_size,criterion=None):
                     labels_true=np.hstack((labels_true,targets[i,:L].cpu().numpy()))
                     labels_pred=np.hstack((labels_pred,pred_labels[i,:L].cpu().numpy()))
                     label_t_=''                    
-                    for i in label_t:                        
-                        label_t_+=SS_dict[i] 
+                    for j in label_t:                        
+                        label_t_+=SS_dict[j] 
                     label_p_=''
-                    for i in label_p:
-                        label_p_+=SS_dict[i]                   
+                    for j in label_p:
+                        label_p_+=SS_dict[j]                   
                     f.write('>%s %d\n'%(eval_list[count].ProteinID,eval_list[count].ProteinLen))
                     f.write('%s\n'%(label_t_))
                     f.write('%s\n'%(label_p_))
@@ -463,6 +457,82 @@ def eval_sov_9_3(args,model,device,eval_list,batch_size,criterion=None):
         accuracy.append(100.0*class_correct[i]/(class_total[i]+1e-12))       
     accuracy.append(100.0*sum(class_correct)/sum(class_total))
     return F1,accuracy,sov_results
+
+
+def embedding_feature_eval_sov_9_3(args,model,device,eval_list,batch_size,criterion=None):
+    model.eval()
+    labels_true=np.array([])
+    labels_pred=np.array([])
+    Eval_FileName=args.res_dir+'/'+args.dataset
+    f = open(Eval_FileName+'_Q3.txt', 'w')
+    count=0
+    SS_dict={0:'C', 1:'E', 2:'H',-100:'X'} 
+    with torch.no_grad():
+        if criterion is not None:
+            centroids=criterion.getNormalizedCentrioids()
+        for batch in embedding_feature_iterate_minibatches(eval_list,batch_size, shuffle=False):
+            inputs, targets,masks = batch
+            inputs=inputs.to(device)
+            targets=targets.to(device)
+            masks=masks.to(device)                    
+            outputs=model(inputs,masks)                         
+            if criterion is None:
+                pred_probs=F.softmax(outputs,dim=-1)   
+            else:
+                outputs=outputs.view(-1,outputs.size(2))                
+                dist=args.tau*torch.matmul(outputs,centroids.t()).view(inputs.size(0),inputs.size(2),-1)
+                pred_probs=F.softmax(dist,dim=-1)                 
+            helix=torch.index_select(pred_probs,dim=-1,index=torch.tensor([3,4,5,8]).cuda()).sum(dim=-1,keepdim=True)
+            strand=torch.index_select(pred_probs, dim=-1, index=torch.tensor([1,2]).cuda()).sum(dim=-1,keepdim=True)
+            coil=torch.index_select(pred_probs, dim=-1, index=torch.tensor([0,6,7]).cuda()).sum(dim=-1,keepdim=True)           
+            probs=torch.cat([coil,strand,helix],dim=-1)          
+            pred_labels=torch.argmax(probs, dim=-1)              
+            Lengths=masks.sum(dim=-1).cpu().numpy()            
+            for i in range(len(Lengths)):
+                L=Lengths[i]-1
+                if L>0:
+                    label_t=targets[i,:L].cpu().numpy()
+                    label_p=pred_labels[i,:L].cpu().numpy()
+                    labels_true=np.hstack((labels_true,targets[i,:L].cpu().numpy()))
+                    labels_pred=np.hstack((labels_pred,pred_labels[i,:L].cpu().numpy()))
+                    label_t_=''                    
+                    for j in label_t:                        
+                        label_t_+=SS_dict[j] 
+                    label_p_=''
+                    for j in label_p:
+                        label_p_+=SS_dict[j]                   
+                    f.write('>%s %d\n'%(eval_list[count].ProteinID,eval_list[count].ProteinLen))
+                    f.write('%s\n'%(label_t_))
+                    f.write('%s\n'%(label_p_))
+                    count+=1
+    
+    f.close()
+    commands="perl SOV.pl "+Eval_FileName+'_Q3.txt'   
+    subprocess.call(commands, stdout=subprocess.PIPE,stderr=subprocess.PIPE,shell=True)   
+    f=open(Eval_FileName+'_Q3_Eval.txt','rt')
+    line=f.readline()
+    sov_results=line.strip() 
+    f.close()          
+    if os.path.exists(Eval_FileName+'_Q3_Eval.txt'):
+      os.remove(Eval_FileName+'_Q3_Eval.txt') 
+    idxs=np.where(labels_true!=-100)
+    labels_true=labels_true[idxs]
+    labels_pred=labels_pred[idxs]
+    F1=f1_score(labels_true,labels_pred,average='macro',labels=np.unique(labels_pred))
+    class_correct=list(0. for i in range(3))
+    class_total=list(0. for i in range(3))
+    for i in range(len(labels_true)):
+        label=int(labels_true[i])
+        class_total[label]+=1
+        if label==labels_pred[i]:
+            class_correct[label]+=1
+    # classes= ['C','E','H']
+    accuracy=[]
+    for i in range(3):
+        accuracy.append(100.0*class_correct[i]/(class_total[i]+1e-12))       
+    accuracy.append(100.0*sum(class_correct)/sum(class_total))
+    return F1,accuracy,sov_results
+
 
 def Ensemble_eval_sov(args,model,model_names,device,eval_list,batch_size,criterion):
     num_models=len(model_names)
@@ -508,11 +578,11 @@ def Ensemble_eval_sov(args,model,model_names,device,eval_list,batch_size,criteri
                 labels_true=np.hstack((labels_true,targets[i,:L].cpu().numpy()))
                 labels_pred=np.hstack((labels_pred,pred_labels[i,:L].cpu().numpy()))
                 label_t_=''                    
-                for i in label_t:                        
-                    label_t_+=SS_dict[i] 
+                for j in label_t:                        
+                    label_t_+=SS_dict[j] 
                 label_p_=''
-                for i in label_p:
-                    label_p_+=SS_dict[i]
+                for j in label_p:
+                    label_p_+=SS_dict[j]
                
                 f.write('>%s %d\n'%(eval_list[count].ProteinID,eval_list[count].ProteinLen))
                 f.write('%s\n'%(label_t_))

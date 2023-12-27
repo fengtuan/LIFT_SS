@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Wed Jun  8 20:45:29 2022
+Created on Thu Jun 30 17:16:20 2022
 
 @author: weiyang
 """
-
+ 
 import torch
 from networks import LIFT_SS_DML,T5LayerNorm_
 from  datasets import *
@@ -26,22 +26,21 @@ from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 
 parser = argparse.ArgumentParser()
 LookupChoices = type('', (argparse.Action, ), dict(__call__ = lambda a, p, n, v, o: setattr(n, a.dest, a.choices[v])))
-parser.add_argument('--SequenceIdentity',type=int,default=30)
 parser.add_argument('--seed', default = 0, type = int)
 parser.add_argument('--maxEpochs', default =100, type = int)
-parser.add_argument('--batch_size', default = 4, type = int)
+parser.add_argument('--batch_size', default = 8, type = int)
 parser.add_argument('--num_class',type=int,default=9)
 parser.add_argument('--proj_dim', default = 32, type = int)
 parser.add_argument('--num_channels',type=int,default=1024)
 parser.add_argument('--depth',type=int,default=2) 
-parser.add_argument('--gradient_accumulation_steps',type=int,default=8)
+parser.add_argument('--gradient_accumulation_steps',type=int,default=4)
 parser.add_argument('--dropout', default = 0.2, type = float)
 parser.add_argument('--tau', default = 18.0, type = float)
 
-#parser.add_argument('--adapter',type=str,default="prefix_tuning")
+# parser.add_argument('--adapter',type=str,default="prefix_tuning")
 # parser.add_argument('--adapter',type=str,default="lora")
 parser.add_argument('--adapter',type=str,default="ia3")
-#parser.add_argument('--adapter',type=str,default="mam_adapter")
+# parser.add_argument('--adapter',type=str,default="mam_adapter")
 # parser.add_argument('--adapter',type=str,default="bottleneck")
 #parser.add_argument('--adapter',type=str,default="parallel_bottleneck")
 #parser.add_argument('--adapter',type=str,default="compacter")
@@ -57,7 +56,7 @@ parser.add_argument('--adapter_type',type=int,default=0)
 parser.add_argument('--leave_out_num',type=int,default=16)
 parser.add_argument('--lr', default = 1e-3, type = float, help = 'Learning rate.')
 parser.add_argument('--weight_decay', type=float, default=1e-3)
-parser.add_argument('--res_dir',type=str,default="dml_adapter_model")
+parser.add_argument('--res_dir',type=str,default="dml_spot_results")
 
 args = parser.parse_args()
 args.use_amp=True
@@ -73,8 +72,8 @@ if args.num_class==3:
     isThreeClass=True
 else:
     isThreeClass=False
-
-common_path=args.res_dir+'/'+str(args.seed)+'_'+str(args.SequenceIdentity)+'_'+str(args.proj_dim)+'_'+str(args.depth)+'_'+args.adapter+'_'    
+    
+common_path=args.res_dir+'/'+str(args.seed)+'_'+str(args.proj_dim)+'_'+str(args.depth)+'_'+args.adapter+'_'    
 if args.adapter=="lora":
     if args.lora_type=='selfattn':
         config=LoRAConfig(r=args.r,alpha=args.r,leave_out=list(range(args.leave_out_num)))
@@ -164,9 +163,8 @@ else:
 
 if(os.path.isdir(res_path)==False ):
   os.mkdir(res_path) 
-
-train_list,valid_list=load_train_valid(args.SequenceIdentity,isThreeClass)  
-split_sequence(train_list)
+train_list,valid_list=load_spot_1d_train_valid(isThreeClass)  
+#split_sequence(train_list)
 model=LIFT_SS_DML(config,adapter_name,args.num_channels,args.depth,args.proj_dim,args.dropout).to(device)
 criterion = SoftmaxLoss(args.num_class,args.proj_dim,args.tau).to(device)
 def get_parameter_names(model, forbidden_layer_types):
@@ -183,7 +181,10 @@ def get_parameter_names(model, forbidden_layer_types):
     # Add model specific parameters (defined with nn.Parameter) since they are not in any child.
     result += list(model._parameters.keys())
     return result
-
+# head_path="ConvNet_SS/best_model_1024_32_2_%s_%d_0.2.pth"%(args.dataset,args.num_class)
+# init_checkpoint=torch.load(head_path)
+# model.head.load_state_dict(init_checkpoint['model']) 
+# criterion.load_state_dict(init_checkpoint['criterion'])  
 
 opt_model=model
 ALL_LAYERNORM_LAYERS.append(T5LayerNorm_)
@@ -206,7 +207,6 @@ optimizer_grouped_parameters = [
 FileName=res_path+'/log_'+str(args.num_class)+time.strftime('_%Y-%m-%d-%H-%M-%S',time.localtime(time.time()))
 ModelName='%s/model_%d'%(res_path,args.num_class)
 optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=args.lr,amsgrad=False)
-
 
 scaler=GradScaler(enabled=args.use_amp)
 #############################################################
@@ -240,7 +240,7 @@ while (epoch < args.maxEpochs) and (not done_looping):
         model.save(ModelName,criterion)      
     else:
         Num_Of_decrease=Num_Of_decrease+1
-    if (Num_Of_decrease>=decrease_patience):
+    if (Num_Of_decrease>decrease_patience):
         done_looping = True    
 print('The validation accuracy %.2f %% of the best model in the %i th epoch' 
             %(best_accuracy,best_epoch))
@@ -248,7 +248,7 @@ f.write('The validation accuracy %.2f %% of the best model in the %i th epoch\n'
             %(best_accuracy,best_epoch))
 
 model.load(ModelName,criterion)
-test_datasets=['CB433','CASP12','CASP13','CASP14']
+test_datasets=['Test2016','Test2018']
 for l in range(len(test_datasets)):
     dataset=test_datasets[l]
     FileName=res_path+'/'+dataset+'_'+ str(args.num_class) 
@@ -257,15 +257,15 @@ for l in range(len(test_datasets)):
     args.res_dir=res_path
     F1,accuracy,sov_results=utils.eval_sov(args,model,device,test_list,1,criterion)
     if not isThreeClass:
-        print('Q9: %.2f %%, F1: %.2f %%  on the dataset  %s'%(accuracy[-1],100*F1,dataset))
-        print('L: %.2f,B: %.2f,E: %.2f,G: %.2f,I: %.2f,H: %.2f,S: %.2f,T: %.2f,P: %.2f '%(accuracy[0],accuracy[1],accuracy[2],accuracy[3],accuracy[4],accuracy[5],accuracy[6],accuracy[7],accuracy[8]))
-        print('9-state SOV results:')
+        print('Q8: %.2f %%, F1: %.2f %%  on the dataset  %s'%(accuracy[-1],100*F1,dataset))
+        print('L: %.2f,B: %.2f,E: %.2f,G: %.2f,I: %.2f,H: %.2f,S: %.2f,T: %.2f'%(accuracy[0],accuracy[1],accuracy[2],accuracy[3],accuracy[4],accuracy[5],accuracy[6],accuracy[7]))
+        print('8-state SOV results:')
         print(sov_results)
-        f.write('Q9:%.2f %%, F1:%.2f %% on the dataset  %s:\n'%(accuracy[-1],100*F1,dataset))
-        f.write('  L: %.2f,B: %.2f,E: %.2f,G: %.2f,I: %.2f,H: %.2f,S: %.2f,T: %.2f,P: %.2f \n'%(accuracy[0],accuracy[1],accuracy[2],accuracy[3],accuracy[4],accuracy[5],accuracy[6],accuracy[7],accuracy[8]))
-        f.write('  [%.2f,%.2f,%.2f, %.2f,%.2f,%.2f, %.2f,%.2f,%.2f] \n'%(accuracy[0],accuracy[1],accuracy[2],accuracy[3],accuracy[4],accuracy[5],accuracy[6],accuracy[7],accuracy[8]))
-        f.write('9-state SOV results:\n')
-        f.write(' %s\n'%(sov_results))            
+        f.write('Q8:%.2f %%, F1:%.2f %% on the dataset  %s:\n'%(accuracy[-1],100*F1,dataset))
+        f.write('  L: %.2f,B: %.2f,E: %.2f,G: %.2f,I: %.2f,H: %.2f,S: %.2f,T: %.2f \n'%(accuracy[0],accuracy[1],accuracy[2],accuracy[3],accuracy[4],accuracy[5],accuracy[6],accuracy[7]))
+        f.write('  [%.2f,%.2f,%.2f, %.2f,%.2f,%.2f, %.2f,%.2f] \n'%(accuracy[0],accuracy[1],accuracy[2],accuracy[3],accuracy[4],accuracy[5],accuracy[6],accuracy[7]))
+        f.write('8-state SOV results:\n')
+        f.write(' %s\n'%(sov_results))           
     else:
         print('Q3: %.2f %%, F1: %.2f %%  on the dataset  %s'%(accuracy[-1],100*F1,dataset))
         print('C: %.2f,E: %.2f,H: %.2f'%(accuracy[0],accuracy[1],accuracy[2]))
